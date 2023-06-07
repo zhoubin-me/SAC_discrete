@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.distributions import Categorical
 import numpy as np
 import torch.nn.functional as F
+from einops import rearrange
 
 
 def hidden_init(layer):
@@ -34,7 +35,11 @@ class Actor(nn.Module):
 
         x = F.relu(self.fc1(state))
         x = F.relu(self.fc2(x))
-        action_probs = self.softmax(self.fc3(x))
+        x = F.relu(self.fc3(x))
+        if len(x.shape) == 3:
+            x = x.squeeze()
+        x = rearrange(x, 'b (x y) -> b x y', x=9, y=7)
+        action_probs = self.softmax(x)
         return action_probs
     
     def evaluate(self, state, epsilon=1e-6):

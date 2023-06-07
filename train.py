@@ -12,6 +12,7 @@ import glob
 from utils import save, collect_random
 import random
 from agent import SAC
+from dmc import DMC
 
 def get_config():
     parser = argparse.ArgumentParser(description='RL')
@@ -31,22 +32,32 @@ def train(config):
     np.random.seed(config.seed)
     random.seed(config.seed)
     torch.manual_seed(config.seed)
-    env = gym.make(config.env)
+    if config.env.startswith('manip'):
+        env_id = "manip-reach_site_features"
+        env = DMC(env_id)
+        obs_space = env.observation_space
+        obs_shape = 0
+        for k, v in obs_space.items():
+            if len(v.shape) < 3:
+                obs_shape += v.shape[1]
+        action_space = env.action_space
+    else:
+        env = gym.make(config.env)
     
-    env.seed(config.seed)
-    env.action_space.seed(config.seed)
+    # env.seed(config.seed)
+    # env.action_space.seed(config.seed)
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     
     steps = 0
     average10 = deque(maxlen=10)
     total_steps = 0
-    
     with wandb.init(project="SAC_Discrete", name=config.run_name, config=config):
+    # with torch.no_grad():
         
-        agent = SAC(state_size=env.observation_space.shape[0],
-                         action_size=env.action_space.n,
-                         device=device)
+        agent = SAC(state_size=obs_shape,
+                    action_size=env.action_space.shape[0] * 7,
+                    device=device)
 
         wandb.watch(agent, log="gradients", log_freq=10)
 
@@ -58,13 +69,13 @@ def train(config):
             env = gym.wrappers.Monitor(env, './video', video_callable=lambda x: x%10==0, force=True)
 
         for i in range(1, config.episodes+1):
-            state = env.reset()
+            state, _ = env.reset()
             episode_steps = 0
             rewards = 0
             while True:
                 action = agent.get_action(state)
                 steps += 1
-                next_state, reward, done, _ = env.step(action)
+                next_state, reward, done, _, _ = env.step(action)
                 buffer.add(state, action, reward, next_state, done)
                 policy_loss, alpha_loss, bellmann_error1, bellmann_error2, current_alpha = agent.learn(steps, buffer.sample(), gamma=0.99)
                 state = next_state
